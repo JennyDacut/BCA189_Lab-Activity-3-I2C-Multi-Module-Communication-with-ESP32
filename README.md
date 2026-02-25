@@ -1,2 +1,2 @@
-# BCA189_Lab-Activity-3-I2C-Multi-Module-Communication-with-ESP32
+# BCA189_Lab-Activity-3-I2C-Multi-Module-Communication-with-Arduino
 We designed and implemented a distributed I2C network using an Arduino Uno as the Master controller. The system integrates multiple I2C slave modules to create a real-time monitoring interface. We successfully managed bus traffic between a DS1307 Real-Time Clock (RTC) for precision timekeeping and an I2C 1602 LCD for user visualization.
