@@ -1,0 +1,182 @@
+/*
+  Project: JEJAJO Home RFID Access System with WiFi Dashboard
+  Description:
+  In this project, we developed a smart RFID-based access monitoring system
+  integrated with a WiFi dashboard. Instead of using the Serial Monitor to
+  display scan results, we created a real-time web dashboard that shows
+  the latest scanned UID and access history.
+
+  Components Used:
+  - ESP32
+  - MFRC522 RFID Reader
+  - MAX7219 LED Matrix (3 modules)
+  - WiFi SoftAP (Access Point Mode)
+*/
+
+#include <SPI.h>
+#include <MFRC522.h>
+#include <MD_Parola.h>
+#include <MD_MAX72xx.h>
+#include <WiFi.h>
+#include <WebServer.h>
+
+// ---------------- PIN DEFINITIONS ----------------
+// Here we define the pins connected to our modules.
+#define RST_PIN   22 
+#define SS_PIN    15  
+#define MATRIX_CS 2   
+
+// ---------------- LED MATRIX SETUP ----------------
+// We are using 3 FC16 LED Matrix modules.
+#define HARDWARE_TYPE MD_MAX72XX::FC16_HW 
+#define MAX_DEVICES 3 
+MD_Parola myDisplay = MD_Parola(HARDWARE_TYPE, MATRIX_CS, MAX_DEVICES);
+
+// Initialize RFID module
+MFRC522 mfrc522(SS_PIN, RST_PIN);
+
+// ---------------- REGISTERED RFID TAGS ----------------
+// These are the authorized RFID UIDs stored in our system.
+String jennyJadeUID = "0A FA 7C 15"; 
+String sirJomUID    = "99 27 77 2B"; 
+
+// Create a web server on port 80
+WebServer server(80);
+
+// Variables to store system messages
+String welcomeMessage = "READY TO SCAN...";
+String lastScannedUID = "---- ---- ---- ----"; 
+String scanLog = "";
+
+// ---------------- CUSTOM EMOJI BITMAPS ----------------
+// We created custom icons to make the LED display more interactive.
+const uint8_t heart[] = { 8, 0x1c, 0x3e, 0x7f, 0xfe, 0xfe, 0x7f, 0x3e, 0x1c };
+const uint8_t coolGuy[] = { 8, 0x3c, 0x42, 0xbd, 0x81, 0xbd, 0xa5, 0x42, 0x3c }; 
+
+// ---------------- WEB DASHBOARD FUNCTION ----------------
+// This function handles the root webpage of our WiFi dashboard.
+void handleRoot() {
+
+  // We designed a simple yet stylish HTML dashboard interface.
+  String html = "<html><head><meta charset='UTF-8'>";
+  html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<meta http-equiv='refresh' content='2'>"; // Auto-refresh every 2 seconds
+
+  // Styling section (CSS)
+  html += "<style>";
+  html += "body { background: linear-gradient(135deg, #FF8C00, #FFA500);";
+  html += "font-family: 'Segoe UI', sans-serif; text-align: center;";
+  html += "color: #333; margin: 0; padding: 20px; }";
+
+  html += ".container { background: white; padding: 30px;";
+  html += "border-radius: 25px; box-shadow: 0 15px 35px rgba(0,0,0,0.2);";
+  html += "max-width: 500px; margin: auto; }";
+
+  html += ".welcome { font-size: 26px; font-weight: bold;";
+  html += "color: #D35400; margin-bottom: 5px; }";
+
+  html += ".big-number { font-size: 45px; font-weight: bold;";
+  html += "color: #E67E22; background: #FFF3E0; padding: 20px;";
+  html += "border-radius: 20px; margin: 15px 0;";
+  html += "border: 3px solid #FF8C00; word-wrap: break-word; }";
+
+  html += ".log { text-align: left; font-size: 14px;";
+  html += "color: #555; border-top: 2px solid #FFD700;";
+  html += "padding-top: 15px; margin-top: 20px; }";
+  html += "</style></head><body>";
+
+  // Dashboard Content
+  html += "<div class='container'>";
+  html += "<h1>🏠 JEJAJO Home</h1>";
+  html += "<div class='welcome'>" + welcomeMessage + "</div>";
+  html += "<div class='big-number'>" + lastScannedUID + "</div>";
+  html += "<div class='log'><b>Access History:</b><br>" + scanLog + "</div>";
+  html += "</div></body></html>";
+
+  server.send(200, "text/html", html);
+}
+
+// ---------------- SETUP FUNCTION ----------------
+void setup() {
+
+  // Start serial communication (for debugging purposes only)
+  Serial.begin(115200);
+
+  // Initialize SPI communication for RFID
+  SPI.begin();
+
+  // We configured the ESP32 as a WiFi Access Point
+  // Users can connect directly to this network to view the dashboard.
+  WiFi.softAP("JEJAJO Home");
+
+  // Define the root URL
+  server.on("/", handleRoot);
+  server.begin();
+
+  // Initialize LED Matrix display
+  myDisplay.begin();
+  myDisplay.setIntensity(1);
+  myDisplay.displayClear();
+
+  // Register custom emoji characters
+  myDisplay.addChar('$', heart);   
+  myDisplay.addChar('%', coolGuy); 
+
+  // Initialize RFID reader
+  mfrc522.PCD_Init();
+}
+
+// ---------------- MAIN LOOP ----------------
+void loop() {
+
+  // Continuously handle web client requests
+  server.handleClient();
+
+  // Run LED matrix animation
+  if (myDisplay.displayAnimate()) {
+    myDisplay.displayReset();
+  }
+
+  // Check if a new RFID card is present
+  if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
+
+    String tag = "";
+
+    // Convert UID to readable format
+    for (byte i = 0; i < mfrc522.uid.size; i++) {
+      tag += String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
+      tag += String(mfrc522.uid.uidByte[i], HEX);
+    }
+
+    tag.toUpperCase();
+    tag.trim();
+
+    // Store last scanned UID
+    lastScannedUID = tag;
+
+    // ---------------- ACCESS VERIFICATION ----------------
+    if (tag == jennyJadeUID) {
+
+      welcomeMessage = "Welcome Home Jenny and Jade";
+      myDisplay.displayClear();
+      myDisplay.displayText(" $ $ $ ", PA_CENTER, 150, 2000, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+
+      // Add to access history log
+      scanLog = "❤️ Jenny & Jade (" + tag + ")<br>" + scanLog;
+    } 
+
+    else if (tag == sirJomUID) {
+
+      welcomeMessage = "Welcome Gwapo Sir Jom!";
+      myDisplay.displayClear();
+      myDisplay.displayText(" % % % ", PA_CENTER, 150, 2000, PA_SCROLL_LEFT, PA_SCROLL_LEFT);
+
+      // Add to access history log
+      scanLog = "😎 Sir Jom (" + tag + ")<br>" + scanLog;
+    }
+
+    // Stop reading the card
+    mfrc522.PICC_HaltA();
+    mfrc522.PCD_StopCrypto1();
+  }
+}
